@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- YouTube refuses embeds that arrive without a referrer (Error 153). The app's own
+     pages live at tauri://localhost, which sends none, so the preview player loads
+     from this page instead, and this page loads YouTube. -->
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Blank Tapes player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  iframe { border: 0; width: 100%; height: 100%; display: block; }
+  p { color: #aaa; font: 14px system-ui, sans-serif; padding: 24px; }
+</style>
+</head>
+<body>
+<script>
+(function () {
+  var v = new URLSearchParams(location.search).get("v") || "";
+  if (!/^[A-Za-z0-9_-]{11}$/.test(v)) {
+    document.body.innerHTML = "<p>No video.</p>";
+    return;
+  }
+  var yt = document.createElement("iframe");
+  yt.src = "https://www.youtube-nocookie.com/embed/" + v +
+    "?autoplay=1&enablejsapi=1&playsinline=1&origin=" + encodeURIComponent(location.origin);
+  yt.allow = "autoplay; encrypted-media; picture-in-picture";
+  yt.allowFullscreen = true;
+  yt.referrerPolicy = "strict-origin-when-cross-origin";
+  yt.title = "Preview";
+  document.body.appendChild(yt);
+
+  // Relay: the app (our parent) speaks YouTube's postMessage protocol to us; we
+  // pass it on once the player has loaded, and pass the player's events back up.
+  var ready = false, queue = [];
+  function toYt(m) { if (ready) yt.contentWindow.postMessage(m, "https://www.youtube-nocookie.com"); else queue.push(m); }
+  yt.addEventListener("load", function () {
+    ready = true;
+    queue.splice(0).forEach(toYt);
+    // Our own handshake too, in case the app's arrived before the player existed.
+    toYt(JSON.stringify({ event: "listening", id: "aria", channel: "widget" }));
+    toYt(JSON.stringify({ event: "command", func: "addEventListener", args: ["onStateChange"], id: "aria", channel: "widget" }));
+  });
+  window.addEventListener("message", function (e) {
+    if (e.source === yt.contentWindow) {
+      if (window.parent !== window) window.parent.postMessage(e.data, "*");
+    } else if (e.source === window.parent && typeof e.data === "string") {
+      toYt(e.data);
+    }
+  });
+})();
+</script>
+</body>
+</html>
